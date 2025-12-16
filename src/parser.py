@@ -1,92 +1,151 @@
-from selenium import webdriver
-from selenium.webdriver.firefox.service import Service
-from selenium.webdriver.firefox.options import Options
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
 from bs4 import BeautifulSoup
 import re
+import unidecode
+
+def classify_property(url):
+    mapping = {
+        "ban-can-ho-chung-cu": "Apartment",
+        "ban-can-ho-chung-cu-mini": "Apartment",
+        "ban-nha-rieng": "House",
+        "ban-nha-biet-thu-lien-ke": "House",
+        "ban-nha-mat-pho": "House",
+        "ban-shophouse-nha-pho-thuong-mai": "House",
+        "ban-dat-nen-du-an": "Land",
+        "ban-dat": "Land",
+        "ban-trang-trai-khu-nghi-duong": "Resort/Investment",
+        "ban-condotel": "Resort/Investment",
+        "ban-kho-nha-xuong": "Warehouse/Factory"
+    }
+
+    for detailed_type, main_group in mapping.items():
+        if detailed_type in url:
+            return main_group
+    return "Unknown"
+
+def normalize_key(key):
+    """
+    Lowercase, remove accents, replace spaces with underscores
+    """
+    key = unidecode.unidecode(key)
+    key = key.lower().replace(" ", "_")
+    return key
+
+def extract_post_id(url):
+    """
+    Extract the post ID from the URL
+    """
+    match = re.search(r"pr(\d+)$", url)
+    return match.group(1) if match else "NaN"
 
 def parse_detail_page(html_content, url):
-    ser = Service(executable_path="geckodriver.exe")
+    soup = BeautifulSoup(html_content, "lxml")
+    """
+    Extract information
+    """
+    # Type of property
+    type_property = classify_property(url)
 
-    # Firefox Configuration
-    options = webdriver.firefox.options.Options()
-    options.binary_location = "C:/Program Files/Mozilla Firefox/firefox.exe"
-    options.headless = False
+    # Post ID
+    post_id = extract_post_id(url)
 
-    driver = webdriver.Firefox(
-        service=ser,
-        options=options
-    )
-    driver.get(url)
-
-    # JS render
-    wait = WebDriverWait(driver, 15)
-    wait.until(EC.presence_of_element_located((By.TAG_NAME, "h1")))
-
-    # Parse BeautifulSoup
-    html = driver.page_source
-    soup = BeautifulSoup(html, "lxml")
-
-    # Extract information
-    # POST ID
-    post_id = re.search(r"pr\d+", url)
-    post_id = post_id.group() if post_id else "NaN"
-
-    # TITLE
+    # Title
     title = soup.find("h1")
     title = title.get_text(strip=True) if title else "NaN"
 
-    # ADDRESS
+    # Address
     address = soup.select_one("span.re__pr-short-description")
     address = address.get_text(strip=True) if address else "NaN"
 
-    # DESCRIPTION
+    # Price per sqm
+    price_per_spm = soup.select_one("span.ext")
+    price_per_spm = price_per_spm.get_text(strip=True) if price_per_spm else "NaN"
+
+    # Description
     description = soup.select_one(".re__pr-description")
-    description = description.get_text(strip=True) if description else "N/A"
+    description = (
+        description.get_text(strip=True).replace("Thông tin mô tả", "", 1)
+        if description
+        else "N/A"
+    )
+
+    # IMAGES
+    images = []
+    for item in soup.select("div.re__media-thumb-item.js__media-thumbs-item"):
+        img_tag = item.find("img")
+        if img_tag:
+            img_url = img_tag.get("data-src") or img_tag.get("src")
+            images.append(img_url)
 
     # OTHER FEATURES
     specs = {}
-    for item in soup.select(".re__pr-specs-content-item"):
-        label = item.select_one(".re__pr-specs-content-item-title")
-        value = item.select_one(".re__pr-specs-content-item-value")
-        if label and value:
-            specs[label.get_text(strip=True)] = value.get_text(strip=True)
+    items = soup.select(".re__pr-specs-content-item")
+    for item in items:
+        label_tag = item.select_one(".re__pr-specs-content-item-title")
+        value_tag = item.select_one(".re__pr-specs-content-item-value")
+        if label_tag and value_tag:
+            key = normalize_key(label_tag.get_text(strip=True))
+            value = value_tag.get_text(strip=True)
+            specs[key] = value
 
-    price = specs.get("Mức giá", "NaN")
-    area = specs.get("Diện tích", "NaN")
-    bedroom = specs.get("Số phòng ngủ", "NaN")
-    bathroom = specs.get("Số phòng tắm, vệ sinh", "NaN")
-    num_floor = specs.get("Số tầng", "NaN")
-    house_orientation = specs.get("Hướng nhà, vệ sinh", "NaN")
-    balcony_direction = specs.get("Hướng ban công, vệ sinh", "NaN")
-    front = specs.get("Mặt tiền, vệ sinh", "NaN")
-    entrance = specs.get("Đường vào", "NaN")
-    legal = specs.get("Pháp lý, vệ sinh", "NaN")
-    furniture = specs.get("Nội thất", "NaN")
+    price = specs.get("khoang_gia", "NaN")
+    area = specs.get("dien_tich", "NaN")
+    bedroom = specs.get("so_phong_ngu", "NaN")
+    bathroom = specs.get("so_phong_tam,_ve_sinh", "NaN")
+    num_floor = specs.get("so_tang", "NaN")
+    orientation = specs.get("huong_nha", "NaN")
+    balcony_direction = specs.get("huong_ban_cong", "NaN")
+    front_width = specs.get("mat_tien", "NaN")
+    road_width = specs.get("duong_vao", "NaN")
+    legal = specs.get("phap_ly", "NaN")
+    furniture = specs.get("noi_that", "NaN")
 
-    driver.quit()
+    # Sub-info
+    sub_info = {}
+    items_02 = soup.select("div.re__pr-short-info-item")
+    for item in items_02:
+        title_tag = item.select_one("span.title")
+        value_tag = item.select_one("span.value")
+        if title_tag and value_tag:
+            key = normalize_key(title_tag.get_text(strip=True))
+            value = value_tag.get_text(strip=True)
+            sub_info[key] = value
+
+    date_posted = sub_info.get("ngay_dang", "NaN")
+    expire_posted = sub_info.get("ngay_het_han", "NaN")
+    type_news = sub_info.get("loai_tin", "NaN")
+
     data = {
         "post_id": post_id,
+        "type_property": type_property,
         "title": title,
         "address": address,
         "price": price,
-        "area": area,
-        "bedroom": bedroom,
-        "bathroom": bathroom,
-        "num_floor": num_floor,
-        "house_orientation": house_orientation,
-        "balcony_direction": balcony_direction,
-        "front": front,
-        "entrance": entrance,
-        "legal": legal,
-        "furniture": furniture,
-        "description": description
+        "price_per_spm": price_per_spm,
+        "spec": {
+            "area": area,
+            "bedroom": bedroom,
+            "bathroom": bathroom,
+            "num_floor": num_floor,
+            "orientation": orientation,
+            "balcony_direction": balcony_direction,
+            "front": front_width,
+            "road": road_width,
+            "legal": legal,
+            "furniture": furniture
+        },
+        "description": description,
+        "images": images,
+        "property_url": url,
+        "date_posted": date_posted,
+        "expire_posted": expire_posted,
+        "type_news": type_news
     }
+
+    # Remove columns with NaN
+    data = {k: v for k, v in data.items() if v not in ("NaN", "N/A")}
 
     return data
 
-if __name__ == '__main__':
-    bds = parse_detail_page(html_content="", url='https://batdongsan.com.vn/ban-can-ho-chung-cu-xa-long-hung-prj-vinhomes-ocean-park-2/dau-tu-tai-vin-2-gia-tu-59tr-m2-full-vat-pr44804495')
-    print(bds)
+
+if __name__ == "__main__":
+    pass
