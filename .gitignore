@@ -210,3 +210,4 @@ __marimo__/
 .idea
 src/geckodriver.exe
 src/chromedriver.exe
+*.json 
