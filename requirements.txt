@@ -1,0 +1,7 @@
+beautifulsoup4
+unidecode
+selenium
+lxml
+undetected_chromedriver
+setuptools
+pymongo
