@@ -24,6 +24,14 @@ def scrape_batdongsan_links(base_categories, num_pages=2, output_file="links_bat
     all_links = [] 
     count = 0
 
+    # Danh sách từ khóa mở rộng theo yêu cầu
+    valid_keywords = [
+        "ban-can-ho-chung-cu", "ban-can-ho-chung-cu-mini", "ban-nha-rieng", 
+        "ban-nha-biet-thu-lien-ke", "ban-nha-mat-pho", "ban-shophouse-nha-pho-thuong-mai", 
+        "ban-dat-nen-du-an", "ban-dat", "ban-trang-trai-khu-nghi-duong", 
+        "ban-condotel", "ban-kho-nha-xuong"
+    ]
+
     # 2. Khởi tạo file CSV và ghi tiêu đề
     with open(output_file, mode='w', newline='', encoding='utf-8') as f:
         writer = csv.writer(f)
@@ -43,7 +51,7 @@ def scrape_batdongsan_links(base_categories, num_pages=2, output_file="links_bat
 
         driver = None
         try:
-            driver = uc.Chrome(options=options, version_main=143)
+            driver = uc.Chrome(options=options)
             driver.set_page_load_timeout(40)
             driver.get(url)
             
@@ -66,10 +74,10 @@ def scrape_batdongsan_links(base_categories, num_pages=2, output_file="links_bat
                     items = []
 
             current_page_links = []
-            valid_keywords = ["ban-can-ho-chung-cu", "ban-nha-rieng", "ban-nha-biet-thu-lien-ke"]
 
             for link in items:
                 href = link.get_attribute("href")
+                # Kiểm tra link hợp lệ dựa trên danh sách keywords mở rộng
                 if href and any(key in href for key in valid_keywords):
                     if href not in all_links:
                         all_links.append(href)
@@ -103,14 +111,13 @@ def scrape_batdongsan_links(base_categories, num_pages=2, output_file="links_bat
 
 # --- CÁCH SỬ DỤNG HÀM ---
 if __name__ == "__main__":
+    # Tập trung vào danh mục tổng theo yêu cầu
     danh_muc_muc_tieu = [
-        "https://batdongsan.com.vn/ban-can-ho-chung-cu",
-        "https://batdongsan.com.vn/ban-nha-rieng",
-        "https://batdongsan.com.vn/ban-nha-biet-thu-lien-ke"
+        "https://batdongsan.com.vn/nha-dat-ban"
     ]
     
-    # Gọi hàm: cào 2 trang cho mỗi danh mục
-    results = scrape_batdongsan_links(danh_muc_muc_tieu, num_pages=2)  # Chỉ cần thay đổi num_pages nếu muốn cào nhiều hơn
+    # Gọi hàm: cào số lượng trang bạn mong muốn
+    results = scrape_batdongsan_links(danh_muc_muc_tieu, num_pages=2)
     
     print(f"\n--- HOÀN THÀNH ---")
     print(f"Tổng cộng thu thập được: {len(results)} link.")
