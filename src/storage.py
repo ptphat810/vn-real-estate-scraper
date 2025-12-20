@@ -11,7 +11,7 @@ def save_data(properties_data):
         return
 
     date_str = datetime.now().strftime("%Y%m%d")
-    filename = f"sale_{date_str}.json"
+    filename = f"data/sale_{date_str}.json"
 
     existing_data = []
 
@@ -28,6 +28,6 @@ def save_data(properties_data):
     try:
         with open(filename, "w", encoding="utf-8") as f:
             json.dump(existing_data, f, ensure_ascii=False, indent=4)
-        logger.info(f"Successfully updated {filename} with {len(properties_data)} new records.")
+        logger.info(f"Successfully saved {filename} with {len(properties_data)} new records.")
     except Exception as e:
         logger.error(f"Error saving to {filename}: {e}")

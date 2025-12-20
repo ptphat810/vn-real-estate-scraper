@@ -208,6 +208,3 @@ __marimo__/
 
 # Local
 .idea
-src/geckodriver.exe
-src/chromedriver.exe
-*.json 
