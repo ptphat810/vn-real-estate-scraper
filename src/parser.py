@@ -53,7 +53,7 @@ SPEC_KEY_MAPPING = {
     "khoang_gia": "price",
     "dien_tich": "area",
     "so_phong_ngu": "bedroom",
-    "so_phong_tam,_ve_sinh": "bathroom",
+    "so_phong_tam_ve_sinh": "bathroom",
     "so_tang": "num_floor",
     "huong_nha": "orientation",
     "huong_ban_cong": "balcony_direction",
@@ -70,45 +70,99 @@ SPEC_KEY_MAPPING = {
 
 # Pre-compiled regex patterns
 POST_ID_PATTERN = re.compile(r"pr(\d+)$")
-COORD_PATTERN_TEMPLATE = r'["\']?{key}["\']?\s*:\s*(-?[\d\.]+)'
-
-PREFIX = "Thông tin mô tả"
 
 
 def normalize_key(key: str) -> str:
     """
-    Convert to lowercase, remove accents, replace spaces with underscores
+    Convert to lowercase, remove accents, replace spaces with underscores,
+    and remove special characters.
     """
-    key = unidecode.unidecode(key).lower().replace(" ", "_")
+    key = unidecode.unidecode(key).lower()
+
+    # Replace spaces and commas with underscores
+    key = re.sub(r'[\s,]+', '_', key)
+
+    # Remove other special characters (keep only alphanumeric and underscores)
+    key = re.sub(r'[^\w_]', '', key)
+
+    # Collapse multiple consecutive underscores into a single one
+    key = re.sub(r'_+', '_', key)
+
+    # Trim leading and trailing underscores
+    key = key.strip('_')
+
     return key
 
 
+def clean_dict(data: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Recursively remove None values, empty collections,
+    and empty strings from a dictionary.
+    """
+    cleaned = {}
+
+    for key, value in data.items():
+        # Skip None values
+        if value is None:
+            continue
+
+        # Skip empty strings or strings containing only whitespace
+        if isinstance(value, str) and not value.strip():
+            continue
+
+        # Recursively clean nested dictionaries
+        if isinstance(value, dict):
+            cleaned_nested = clean_dict(value)
+            if cleaned_nested:
+                cleaned[key] = cleaned_nested
+            continue
+
+        # Skip empty lists
+        if isinstance(value, list) and not value:
+            continue
+
+        cleaned[key] = value
+
+    return cleaned
+
+
+def get_text(soup: BeautifulSoup, selector: str, default: Optional[str] = None) -> Optional[str]:
+    """
+    Safely extract text content from HTML element by CSS selector.
+    """
+    tag = soup.select_one(selector)
+    return tag.get_text(strip=True) if tag else default
+
+
 def get_post_id(url: str) -> Optional[str]:
-    """
-    Extract the unique post identifier from listing URL.
-    """
+    """Extract the unique post identifier from listing URL."""
     match = POST_ID_PATTERN.search(url)
     return match.group(1) if match else None
 
 
 def set_property_category(url: str) -> str:
-    """
-    Determine property category from URL path segment
-    """
+    """Determine property category from URL path segment."""
     path = urlparse(url).path.strip('/').lower()
 
-    for path_segment, category in ALL_PROPERTY_TYPES.items():
+    # Match the longest key first
+    sorted_types = sorted(
+        ALL_PROPERTY_TYPES.items(),
+        key=lambda x: len(x[0]),
+        reverse=True
+    )
+
+    for path_segment, category in sorted_types:
         if path.startswith(path_segment):
             # Verify path segment boundary
-            if len(path) == len(path_segment) or path[len(path_segment)] == '-':
+            is_full_match = len(path) == len(path_segment)
+            if is_full_match or path[len(path_segment)] in ('-', '/'):
                 return category
+
     return "Unknown"
 
 
 def set_transaction_type(url: str) -> str:
-    """
-    Detect the transaction type (sale or rent) from URL pattern.
-    """
+    """Detect the transaction type (sale or rent) from URL pattern."""
     path = urlparse(url).path.strip('/').lower()
 
     for transaction_type, pattern in TRANSACTION_TYPE_PATTERNS.items():
@@ -118,35 +172,15 @@ def set_transaction_type(url: str) -> str:
     return "Unknown"
 
 
-def clean_dict(data: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Recursively remove None values and empty collections from dictionary.
-    """
-    cleaned = {}
-
-    for key, value in data.items():
-        if value is None:
-            continue
-        elif isinstance(value, dict):
-            cleaned_nested = clean_dict(value)
-            if cleaned_nested:  # Only include non-empty nested dicts
-                cleaned[key] = cleaned_nested
-        elif isinstance(value, list) and not value:
-            continue
-        else:
-            cleaned[key] = value
-
-    return cleaned
-
-
 def get_coordinate(html_content: str) -> Dict[str, float]:
     """
     Uses flexible Regex to extract key numerical values coordinates
     from a hidden JavaScript configuration block in the static HTML
     """
     geo = {}
+    keys = ['latitude', 'longitude']
 
-    for key in ['latitude', 'longitude']:
+    for key in keys:
         pattern = rf'["\']?{re.escape(key)}["\']?\s*:\s*(-?[\d\.]+)'
         match = re.search(pattern, html_content)
         if match:
@@ -158,12 +192,42 @@ def get_coordinate(html_content: str) -> Dict[str, float]:
     return geo
 
 
-def get_text(soup: BeautifulSoup, selector: str, default: Optional[str] = None) -> Optional[str]:
-    """
-    Safely extract text content from HTML element by CSS selector.
-    """
-    tag = soup.select_one(selector)
-    return tag.get_text(strip=True) if tag else default
+def get_specs(soup: BeautifulSoup) -> Dict[str, str]:
+    specs = {}
+
+    items = soup.select(".re__pr-specs-content-item")
+    if not items:
+        return specs
+
+    for item in items:
+        label_tag = item.select_one(".re__pr-specs-content-item-title")
+        value_tag = item.select_one(".re__pr-specs-content-item-value")
+
+        if label_tag and value_tag:
+            key = normalize_key(label_tag.get_text(strip=True))
+            value = value_tag.get_text(strip=True)
+            specs[key] = value
+
+    return specs
+
+
+def get_sub_info(soup: BeautifulSoup) -> Dict[str, str]:
+    sub_info = {}
+
+    items = soup.select("div.re__pr-short-info-item")
+    if not items:
+        return sub_info
+
+    for item in items:
+        title_tag = item.select_one("span.title")
+        value_tag = item.select_one("span.value")
+
+        if title_tag and value_tag:
+            key = normalize_key(title_tag.get_text(strip=True))
+            value = value_tag.get_text(strip=True)
+            sub_info[key] = value
+
+    return sub_info
 
 
 def get_agent_info(soup: BeautifulSoup) -> Dict[str, str]:
@@ -194,12 +258,12 @@ def get_agent_info(soup: BeautifulSoup) -> Dict[str, str]:
         if src:
             agent_info['avatar_url'] = src
 
-    # Extract visible phone number
-    phone_div = soup.select_one("div.js__phone")
-    if phone_div:
-        phone_span = phone_div.find('span')
+    # Extract invisible phone number
+    phone_tag = soup.select_one("div.js__phone")
+    if phone_tag:
+        phone_span = phone_tag.find('span')
         if phone_span:
-            agent_info['phone_visible'] = phone_span.get_text(strip=True)
+            agent_info['phone_invisible'] = phone_span.get_text(strip=True)
 
     # Extract Zalo messaging contact information
     zalo_tag = soup.select_one("a.js__zalo-chat")
@@ -208,8 +272,9 @@ def get_agent_info(soup: BeautifulSoup) -> Dict[str, str]:
         if data_href:
             agent_info['zalo_url'] = data_href
 
-    exp_items = soup.select("div.re__agent-experiment div.agent-deail-infor")
-    for item in exp_items:
+    # Extract other information
+    other_agent_info = soup.select("div.re__agent-experiment div.agent-deail-infor")
+    for item in other_agent_info:
         label_tag = item.select_one("span")
         value_tag = item.select_one("i")
 
@@ -225,36 +290,6 @@ def get_agent_info(soup: BeautifulSoup) -> Dict[str, str]:
     return agent_info
 
 
-def get_specs(soup: BeautifulSoup) -> Dict[str, str]:
-    specs = {}
-
-    for item in soup.select(".re__pr-specs-content-item"):
-        label_tag = item.select_one(".re__pr-specs-content-item-title")
-        value_tag = item.select_one(".re__pr-specs-content-item-value")
-
-        if label_tag and value_tag:
-            key = normalize_key(label_tag.get_text(strip=True))
-            value = value_tag.get_text(strip=True)
-            specs[key] = value
-
-    return specs
-
-
-def get_sub_info(soup: BeautifulSoup) -> Dict[str, str]:
-    sub_info = {}
-
-    for item in soup.select("div.re__pr-short-info-item"):
-        title_tag = item.select_one("span.title")
-        value_tag = item.select_one("span.value")
-
-        if title_tag and value_tag:
-            key = normalize_key(title_tag.get_text(strip=True))
-            value = value_tag.get_text(strip=True)
-            sub_info[key] = value
-
-    return sub_info
-
-
 def get_project_info(soup: BeautifulSoup) -> Dict[str, str]:
     project_info = {}
 
@@ -262,34 +297,41 @@ def get_project_info(soup: BeautifulSoup) -> Dict[str, str]:
     if not card:
         return project_info
 
+    # Extract project name
     title = get_text(card, "div.re__project-title")
     if title:
         project_info["name"] = title
 
+    # Extract status
     for item in card.select("span.re__prj-card-config-value"):
         text = item.get_text(strip=True)
-        aria = unidecode.unidecode(item.get("aria-label", "")).lower()
+        aria_label = unidecode.unidecode(item.get("aria-label", "")).lower()
 
-        if "trang thai" in aria:
+        if "trang thai" in aria_label:
             project_info["status"] = text
-        elif "gia" in aria:
+        elif "gia" in aria_label:
             project_info["price"] = text
 
-    investor = get_text(
-        card,
-        "span.re__prj-card-config-value i.re__icon-office--sm + span.re__long-text"
-    )
+    # Extract investor information
+    investor = get_text(card, "span.re__prj-card-config-value i.re__icon-office--sm + span.re__long-text")
     if investor:
         project_info["investor"] = investor
 
+    # Extract project image
     img = card.select_one("div.re__section-avatar img")
-    if img and img.get("src"):
-        project_info["image"] = img["src"]
+    if img:
+        src = img.get("src")
+        if src:
+            project_info["image"] = src
 
+    # Extract project URL
     link = card.select_one("div.re__section-avatar a")
-    if link and link.get("href"):
-        project_info["project_url"] = link["href"]
+    if link:
+        href = link.get("href")
+        if href:
+            project_info["project_url"] = href
 
+    # Extract listing count
     a_tag = card.select_one("a.re__link-pr span")
     if a_tag:
         text = a_tag.get_text(strip=True)
@@ -301,14 +343,16 @@ def get_project_info(soup: BeautifulSoup) -> Dict[str, str]:
 
 
 def get_description(soup: BeautifulSoup) -> Optional[str]:
+    prefix = "Thông tin mô tả"
     description_tag = soup.select_one(".re__pr-description")
     if not description_tag:
         return None
 
     description = description_tag.get_text(strip=True)
 
-    if description.startswith(PREFIX):
-        description = description[len(PREFIX):].strip()
+    # Remove standard prefix
+    if description.startswith(prefix):
+        description = description[len(prefix):].strip()
 
     return description if description else None
 
