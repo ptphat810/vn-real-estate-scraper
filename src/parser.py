@@ -207,14 +207,20 @@ def get_agent_info(soup: BeautifulSoup) -> Dict[str, str]:
         data_href = zalo_tag.get('data-href')
         if data_href:
             agent_info['zalo_url'] = data_href
-        raw = zalo_tag.get('raw')
-        if raw:
-            agent_info['zalo_raw'] = raw
 
-    # Extract link to view other listings by this agent
-    other_listings_tag = soup.select_one("a.re__link-se")
-    if other_listings_tag:
-        agent_info['other_listings'] = other_listings_tag.get_text(strip=True)
+    exp_items = soup.select("div.re__agent-experiment div.agent-deail-infor")
+    for item in exp_items:
+        label_tag = item.select_one("span")
+        value_tag = item.select_one("i")
+
+        if label_tag and value_tag:
+            label = label_tag.get_text(strip=True).lower()
+            value = value_tag.get_text(strip=True)
+
+            if "tham gia" in label:
+                agent_info["join_duration"] = value
+            elif "tin đăng" in label:
+                agent_info["listings"] = value
 
     return agent_info
 
@@ -247,6 +253,51 @@ def get_sub_info(soup: BeautifulSoup) -> Dict[str, str]:
             sub_info[key] = value
 
     return sub_info
+
+
+def get_project_info(soup: BeautifulSoup) -> Dict[str, str]:
+    project_info = {}
+
+    card = soup.select_one("div.re__ldp-project-info")
+    if not card:
+        return project_info
+
+    title = get_text(card, "div.re__project-title")
+    if title:
+        project_info["name"] = title
+
+    for item in card.select("span.re__prj-card-config-value"):
+        text = item.get_text(strip=True)
+        aria = unidecode.unidecode(item.get("aria-label", "")).lower()
+
+        if "trang thai" in aria:
+            project_info["status"] = text
+        elif "gia" in aria:
+            project_info["price"] = text
+
+    investor = get_text(
+        card,
+        "span.re__prj-card-config-value i.re__icon-office--sm + span.re__long-text"
+    )
+    if investor:
+        project_info["investor"] = investor
+
+    img = card.select_one("div.re__section-avatar img")
+    if img and img.get("src"):
+        project_info["image"] = img["src"]
+
+    link = card.select_one("div.re__section-avatar a")
+    if link and link.get("href"):
+        project_info["project_url"] = link["href"]
+
+    a_tag = card.select_one("a.re__link-pr span")
+    if a_tag:
+        text = a_tag.get_text(strip=True)
+        match = re.search(r'\d+', text.replace(',', ''))
+        if match:
+            project_info["listing_count"] = int(match.group())
+
+    return project_info
 
 
 def get_description(soup: BeautifulSoup) -> Optional[str]:
