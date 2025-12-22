@@ -90,6 +90,8 @@ def clean_dict(data):
 
 
 def get_text(soup, selector, default=None):
+    if soup is None:
+        return default
     tag = soup.select_one(selector)
     return tag.get_text(strip=True) if tag else default
 
@@ -203,6 +205,8 @@ def get_agent_info(soup):
 def get_project_info(soup):
     project_info = {}
     card = soup.select_one("div.re__ldp-project-info")
+    if not card:
+        return project_info
     title = get_text(card, "div.re__project-title")
     if title:
         project_info["name"] = title
@@ -264,6 +268,7 @@ def parse_detail_page(html_content, url):
     description = get_description(soup)
     images = get_images(soup)
     coords = get_coordinate(html_content)
+    project_info = get_project_info(soup)
     agent_info = get_agent_info(soup)
     sub_info = get_sub_info(soup)
     specs = get_specs(soup)
@@ -273,6 +278,8 @@ def parse_detail_page(html_content, url):
         mapped_key = SPEC_KEY_MAPPING.get(key, key)
         if mapped_key not in ['price', 'area']:
             spec_data[mapped_key] = value
+    verified_tag = soup.find("div", class_="re__pr-stick-listing-verified")
+    is_verified = verified_tag is not None
 
     data = {
         "post_id": post_id,
@@ -289,10 +296,12 @@ def parse_detail_page(html_content, url):
         "spec": spec_data,
         "description": description,
         "images": images,
+        "project_info": project_info,
         "date_posted": sub_info.get("ngay_dang"),
         "date_expired": sub_info.get("ngay_het_han"),
         "news_type": sub_info.get("loai_tin"),
         "contact_info": agent_info,
+        "verified": is_verified,
         "scraped_at": datetime.now().isoformat()
     }
     return clean_dict(data)
