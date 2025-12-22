@@ -5,9 +5,9 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import NoSuchElementException, StaleElementReferenceException
-from parser import parse_detail_page, get_post_id
-from utils.helper import is_duplicate, mark_as_scraped
-from utils.logger import get_logger
+from src.parser import parse_detail_page, get_post_id
+from src.utils.helper import is_duplicate, mark_as_scraped
+from src.utils.logger import get_logger
 
 logger = get_logger("crawler")
 
