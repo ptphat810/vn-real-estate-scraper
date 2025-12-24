@@ -14,16 +14,17 @@ def init_db():
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute('''
-            CREATE TABLE IF NOT EXISTS scrape_log (
+            CREATE TABLE IF NOT EXISTS scraped_log (
                 id TEXT PRIMARY KEY,
                 url TEXT,
                 scraped_date TEXT,
-                status TEXT
+                status TEXT,
+                category TEXT
             )
         ''')
     conn.commit()
     conn.close()
-    print(f"Database initialized at: {DB_PATH}")
+    print(f"Database initialized")
 
 
 def load_seen_ids():
@@ -33,7 +34,7 @@ def load_seen_ids():
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     try:
-        cursor.execute("SELECT id FROM scrape_log WHERE status = 'success'")
+        cursor.execute("SELECT id FROM scraped_log WHERE status = 'success'")
         return {str(row[0]) for row in cursor.fetchall()}
     except sqlite3.Error as e:
         print(f"Error loading IDs: {e}")
@@ -45,21 +46,21 @@ def load_seen_ids():
 def is_success(post_id):
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-    cursor.execute("SELECT status FROM scrape_log WHERE id = ?", (str(post_id),))
+    cursor.execute("SELECT status FROM scraped_log WHERE id = ?", (str(post_id),))
     result = cursor.fetchone()
     conn.close()
     return result is not None and result[0] == 'success'
 
 
-def update_status(post_id, url, status):
+def update_status(post_id, url, status, category):
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     try:
         cursor.execute('''
-            INSERT OR REPLACE INTO scrape_log (id, url, scraped_date, status)
-            VALUES (?, ?, ?, ?)
-        ''', (str(post_id), url, now, status))
+            INSERT OR REPLACE INTO scraped_log (id, url, scraped_date, status, category)
+            VALUES (?, ?, ?, ?, ?)
+        ''', (str(post_id), url, now, status, category))
         conn.commit()
     except sqlite3.Error as e:
         print(f"Error updating status for {post_id}: {e}")
@@ -73,7 +74,7 @@ def get_stats():
 
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-    cursor.execute("SELECT status, COUNT(*) FROM scrape_log GROUP BY status")
+    cursor.execute("SELECT status, COUNT(*) FROM scraped_log GROUP BY status")
     stats = dict(cursor.fetchall())
     conn.close()
     return stats

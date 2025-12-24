@@ -10,6 +10,7 @@ from utils import is_success, update_status, get_logger
 
 logger = get_logger("scraper")
 
+
 def safe_quit_driver(self):
     try:
         self.quit()
@@ -53,7 +54,6 @@ def fetch_list_links(driver, page_url):
         driver.get(page_url)
         wait = WebDriverWait(driver, 15)
         wait.until(EC.presence_of_element_located((By.CLASS_NAME, "js__card")))
-
         items = driver.find_elements(By.CLASS_NAME, "js__card")
         count_on_page = len(items)
 
@@ -95,7 +95,8 @@ def process_single_page(driver, links):
 
             if data:
                 page_data.append(data)
-                update_status(pid, url, "success")
+                category = data.get("transaction_type")
+                update_status(pid, url, "success", category)
                 logger.info(f"-> Success data extracted")
 
             time.sleep(random.uniform(2, 4))
