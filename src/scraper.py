@@ -5,8 +5,8 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import NoSuchElementException, StaleElementReferenceException
-from parser import parse_detail_page, get_post_id
-from utils import is_success, update_status, get_logger
+from parser import parse_detail_page, get_post_id, classify_transaction_type
+from utils import get_logger, save_data
 
 logger = get_logger("scraper")
 
@@ -40,22 +40,24 @@ def init_browser(headless=True):
         driver = uc.Chrome(options=options)
         driver.set_page_load_timeout(60)
         return driver
+
     except Exception as e:
-        logger.error(f"Failed to initialize Driver: {e}")
+        logger.error(f"Failed to initialize driver: {e}")
         raise
 
 
-def fetch_list_links(driver, page_url):
+def fetch_list_links(driver, page_url, mongo_client):
     logger.info(f"Scanning: {page_url}")
     links = []
-    skipped_on_page = 0
+    skipped = 0
 
     try:
         driver.get(page_url)
         wait = WebDriverWait(driver, 15)
         wait.until(EC.presence_of_element_located((By.CLASS_NAME, "js__card")))
         items = driver.find_elements(By.CLASS_NAME, "js__card")
-        count_on_page = len(items)
+        type_post = classify_transaction_type(page_url)
+        count = len(items)
 
         for item in items:
             try:
@@ -63,50 +65,48 @@ def fetch_list_links(driver, page_url):
                 url = link_tag.get_attribute("href")
                 pid = get_post_id(url)
 
-                if pid:
-                    if not is_success(pid):
-                        links.append((url, pid))
-                    else:
-                        skipped_on_page += 1
+                if pid and not mongo_client.check_duplicated(pid, type_post):
+                    links.append((url, pid))
+                else:
+                    skipped += 1
+
             except (NoSuchElementException, StaleElementReferenceException):
                 continue
 
-        logger.info(f"Page stats: {count_on_page} items found, {len(links)} are new.")
+        logger.info(f"Fetched {len(links)} new links from list page (Skipped {skipped} duplicates)")
     except Exception as e:
-        logger.error(f"Error fetching links at {page_url}: {e}")
+        logger.error(f"Error fetching list links: {e}")
 
-    return links, skipped_on_page
+    return links, skipped
 
 
-def process_single_page(driver, links):
-    page_data = []
-    total = len(links)
-
+def process_single_page(driver, links, mongo_client):
+    count = 0
     for i, (url, pid) in enumerate(links):
-        logger.info(f"[{i + 1}/{total}] Processing ID: {pid}")
         try:
+            logger.info(f"Processing detail [{i + 1}/{len(links)}]: {pid}")
             driver.get(url)
+
             WebDriverWait(driver, 15).until(
                 EC.presence_of_element_located((By.CSS_SELECTOR, "h1.re__pr-title"))
             )
 
             html_content = driver.page_source
             data = parse_detail_page(html_content, url)
+            if data is not None:
+                save_data([data])
+                mongo_client.insert_post(data)
+                count += 1
 
-            if data:
-                page_data.append(data)
-                category = data.get("transaction_type")
-                update_status(pid, url, "success", category)
-                logger.info(f"-> Success data extracted")
+                logger.info(f"--> Saved {pid} to MongoAtlas")
 
             time.sleep(random.uniform(2, 4))
         except Exception as e:
-            logger.warning(f"-> Skip {pid} due to error: {e}")
+            logger.warning(f"--> Skipping {pid} due to error: {e}")
+    return count
 
-    return page_data
 
-
-def process_multiple_pages(driver, target, save_data_fn):
+def process_multiple_pages(driver, target, mongo_client):
     name = target.get("name")
     base_url = target.get("url")
     start_page = target.get("start_page", 1)
@@ -122,18 +122,16 @@ def process_multiple_pages(driver, target, save_data_fn):
         page_url = base_url if p == 1 else f"{base_url}/p{p}"
         logger.info(f"=== ACCESSING PAGE {p} ===")
 
-        links, skipped = fetch_list_links(driver, page_url)
+        links, skipped = fetch_list_links(driver, page_url, mongo_client)
         total_skipped += skipped
 
         if not links:
+            logger.info(f"No new links found on page {p}.")
             pages_processed += 1
             continue
 
-        results = process_single_page(driver, links)
-
-        if results:
-            save_data_fn(results)
-            total_new += len(results)
+        inserted_count = process_single_page(driver, links, mongo_client)
+        total_new += inserted_count
 
         pages_processed += 1
         time.sleep(random.uniform(3, 6))

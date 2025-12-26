@@ -1,38 +1,32 @@
 import time
-from src import (
-    init_browser, process_multiple_pages, save_data,
-    init_db, load_seen_ids, load_config, get_logger,
-    MongoDBClient
-)
+from src.mongo_client import MongoDBClient
+from src.scraper import init_browser, process_multiple_pages
+from src.utils import load_config, get_logger
 
 logger = get_logger("main")
 
 def main():
     logger.info("=== STARTING SCRAPER SYSTEM ===")
-    init_db()
-    mongo = MongoDBClient()
-    cfg = load_config()
-    sc_cfg = cfg.get('scraper', {})
-    targets = cfg.get('targets', [])
 
-    if not targets:
-        logger.error("No targets found in config.yaml")
-        return
-
-    driver = init_browser(headless=sc_cfg.get('headless', False))
-    seen_ids = load_seen_ids()
-    logger.info(f"Loaded {len(seen_ids)} previously successful IDs")
-
-    start_time = time.time()
+    mongo = None
+    driver = None
     total_new_records = 0
     total_skipped = 0
     pages_processed = 0
-
-    def store_data(data_list):
-        save_data(data_list)
-        return mongo.insert_many_posts(data_list)
+    start_time = time.time()
 
     try:
+        mongo = MongoDBClient()
+        cfg = load_config()
+        sc_cfg = cfg.get('scraper', {})
+        targets = cfg.get('targets', [])
+
+        if not targets:
+            logger.error("No targets found in config.yaml")
+            return
+
+        driver = init_browser(headless=sc_cfg.get('headless', False))
+
         for target in targets:
             if not target.get('enabled', True):
                 logger.info(f"Skipping disabled target: {target.get('name')}")
@@ -41,7 +35,7 @@ def main():
             new_record, skipped_record, page_process = process_multiple_pages(
                 driver=driver,
                 target=target,
-                save_data_fn=store_data
+                mongo_client=mongo
             )
 
             total_new_records += new_record
@@ -52,11 +46,20 @@ def main():
         logger.critical(f"SYSTEM CRASH: {e}", exc_info=True)
 
     finally:
-        try:
-            driver.quit()
-            mongo.close()
-        except Exception as e:
-            logger.debug(f"Error close connection: {e}")
+        if driver is not None:
+            try:
+                driver.quit()
+                logger.info("Browser closed successfully.")
+            except Exception as e:
+                logger.warning(f"Failed to close browser: {e}")
+
+        if mongo is not None:
+            try:
+                mongo.close()
+                logger.info("MongoDB connection closed successfully.")
+
+            except Exception as e:
+                logger.warning(f"Failed to close MongoDB connection: {e}")
 
         duration = int(time.time() - start_time)
         minutes, seconds = divmod(duration, 60)
