@@ -12,3 +12,4 @@ matplotlib
 seaborn
 numpy
 folium
+plotly.express
