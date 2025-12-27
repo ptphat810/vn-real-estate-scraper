@@ -6,3 +6,10 @@ undetected_chromedriver
 setuptools
 pymongo
 pyyaml
+dotenv
+pandas
+matplotlib
+seaborn
+numpy
+folium
+plotly.express
