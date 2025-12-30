@@ -1,7 +1,7 @@
 import time
-from src.mongo_client import MongoDBClient
-from src.scraper import init_browser, process_multiple_pages
-from src.utils import load_config, get_logger
+from mongo_client import MongoDBClient
+from scraper import init_browser, process_multiple_pages
+from utils import load_config, get_logger
 
 logger = get_logger("main")
 

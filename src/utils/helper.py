@@ -4,7 +4,7 @@ import json
 from datetime import datetime
 
 
-def load_config(config_path="config.yaml"):
+def load_config(config_path="src/config.yaml"):
     if not os.path.exists(config_path):
         raise FileNotFoundError(f"Not found config: {config_path}")
 
